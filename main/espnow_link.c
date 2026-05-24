@@ -10,6 +10,7 @@
 #include "device_record.h"
 #include "esp_log.h"
 #include "esp_mac.h"
+#include "esp_timer.h"
 #include "esp_netif.h"
 #include "esp_now.h"
 #include "esp_wifi.h"
@@ -23,6 +24,9 @@ static const char *TAG = "espnow";
 static bool s_ready;
 static bool s_wifi_up;
 static SemaphoreHandle_t s_wifi_mux;
+static int64_t s_last_tx_us;
+
+#define ESPNOW_TX_MIN_INTERVAL_US  30000
 
 static void panel_mac(uint8_t out[6])
 {
@@ -188,9 +192,18 @@ static esp_err_t send_command(const command_t *cmd)
         return ret;
     }
 
+    int64_t now = esp_timer_get_time();
+    if ((now - s_last_tx_us) < ESPNOW_TX_MIN_INTERVAL_US) {
+        return ESP_OK;
+    }
+
     uint8_t panel[6];
     panel_mac(panel);
-    return esp_now_send(panel, (const uint8_t *)cmd, sizeof(command_t));
+    esp_err_t ret = esp_now_send(panel, (const uint8_t *)cmd, sizeof(command_t));
+    if (ret == ESP_OK) {
+        s_last_tx_us = now;
+    }
+    return ret;
 }
 
 static void fill_from_record(const device_record_t *rec, device_info_t *dev)
