@@ -1,0 +1,27 @@
+# ESP-IDF build output
+build/
+main/build/
+
+# Generated / local config backups
+sdkconfig.old
+sdkconfig.defaults.old
+
+# Managed dependencies (if added later)
+managed_components/
+dependencies.lock
+
+# IDE and editor
+.vscode/
+.continue/
+.idea/
+*.swp
+*~
+
+# Python / tools
+__pycache__/
+*.pyc
+.venv/
+
+# OS junk
+.DS_Store
+Thumbs.db
