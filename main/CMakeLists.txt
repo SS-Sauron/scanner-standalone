@@ -10,6 +10,10 @@ idf_component_register(
         "bt_scanner.c"
         "sweep_runner.c"
         "nrf24_scanner.c"
+        "telemetry_proto.c"
+        "telemetry_encode.c"
+        "telemetry_uart.c"
+        "telemetry_emit.c"
     INCLUDE_DIRS "."
     REQUIRES
         nvs_flash

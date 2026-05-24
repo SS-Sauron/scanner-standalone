@@ -1,5 +1,5 @@
 /*
- * sweep_runner.c — sweep_all: BLE → Classic → optional nRF
+ * sweep_runner.c — bt-full: BLE → Classic → optional nRF
  */
 
 #include "sweep_runner.h"
@@ -7,9 +7,7 @@
 #include "esp_log.h"
 
 #include "bt_scanner.h"
-#include "device_cache.h"
 #include "nrf24_scanner.h"
-#include "radio_guard.h"
 #include "scanner_types.h"
 
 static const char *TAG = "sweep";
@@ -25,7 +23,7 @@ esp_err_t sweep_runner_run(void)
     const scanner_mode_t active_mode = MODE_SWEEP;
     esp_err_t err;
 
-    ESP_LOGI(TAG, "sweep start (nrf=%s)", s_include_nrf ? "yes" : "no");
+    ESP_LOGI(TAG, "bt-full start (nrf=%s)", s_include_nrf ? "yes" : "no");
 
     err = bt_scanner_run(active_mode);
     if (err != ESP_OK || mode_get() != active_mode) {
@@ -42,7 +40,6 @@ esp_err_t sweep_runner_run(void)
         ESP_LOGI(TAG, "Phase 3: nRF24 skipped (not attached)");
     }
 
-    device_cache_log_summary();
-    ESP_LOGI(TAG, "sweep done");
+    ESP_LOGI(TAG, "bt-full done");
     return err;
 }

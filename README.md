@@ -2,7 +2,9 @@
 
 Firmware for an **ESP32** (DOIT DevKit V1) that scans **Wi‑Fi**, **BLE**, or **Classic Bluetooth** from the serial monitor. Only **one radio activity** runs at a time: you never Wi‑Fi scan and Bluetooth scan together.
 
-Results are stored in a structured **device cache** (for future ESP‑NOW to the CrowPanel). The serial monitor prints a compact summary, not an ASCII table.
+Results are stored in a structured **device cache**. The serial monitor prints **one line per device as it is found**, then a short count line when the scan ends.
+
+**CrowPanel link (Phase 1):** During `wifi` mode, each AP is also sent as **NDJSON over UART2** (GPIO 17 TX → panel RX). See [`docs/UART_TELEMETRY.md`](docs/UART_TELEMETRY.md).
 
 ---
 
@@ -10,16 +12,22 @@ Results are stored in a structured **device cache** (for future ESP‑NOW to the
 
 | Command | Action |
 |---------|--------|
-| `wifi` | Wi‑Fi AP scan every ~5 s (driver up only during this mode) |
-| `bt-ble` | BLE active scan ~10 s, then stack off |
-| `bt-classic` | Classic inquiry ~11 s, then stack off |
-| `bt` | BLE phase → pause → Classic phase (full BT teardown between) |
-| `sweep_all` | Same as `bt`, then optional nRF24 phase if hardware detected |
+| `wifi` | Wi‑Fi AP scan every ~5 s; logs SSID/RSSI/auth/ch + UART telemetry to panel |
+| `bt-ble` | BLE active scan ~30 s, then stack off |
+| `bt-classic` | Classic inquiry ~30 s, then stack off |
+| `bt` | BLE (~30 s) → pause → Classic (~30 s); no nRF |
+| `bt-full` | Same as `bt`, then optional nRF24 phase if fitted (`sweep_all` is an alias) |
 | `stop` | Idle; all radios off |
 
 **LED (GPIO 2):** on during any scan mode; off when idle.
 
 **Rule:** `radio_guard` ensures Wi‑Fi driver and Bluedroid are not both active.
+
+**Timing:** edit `main/scanner_config.h` (`SCAN_BLE_DURATION_MS`, `SCAN_CLASSIC_DURATION_MS`).
+
+**Live output:** each new device logs immediately; extra lines appear if a name or Classic COD arrives later. End line is a count only.
+
+**`bt` vs `bt-full`:** `bt` is BLE + Classic only. `bt-full` adds the nRF24 phase when the module probes present on boot.
 
 ---
 
@@ -41,7 +49,8 @@ scanner-standalone/
 │   ├── ble_scanner.c       # BLE GAP scan → device_cache
 │   ├── classic_scanner.c   # Classic inquiry → device_cache
 │   ├── bt_scanner.c        # Sequential BLE + Classic macro
-│   ├── sweep_runner.c      # sweep_all orchestration
+│   ├── sweep_runner.c      # bt / bt-full orchestration
+│   ├── scanner_config.h    # Scan durations (BLE / Classic ms)
 │   ├── device_record.h     # Structured discovery record
 │   ├── device_cache.c      # Dedup table (64 entries)
 │   └── nrf24_scanner.c     # nRF24 probe stub (scan TBD)
@@ -58,7 +67,7 @@ scanner-standalone/
 | `MODE_WIFI` | `wifi_scanner_run()` |
 | `MODE_BT` | BLE only |
 | `MODE_BT_CLASSIC` | Classic only |
-| `MODE_SWEEP` | `sweep_runner_run()` (`bt` or `sweep_all`) |
+| `MODE_SWEEP` | `sweep_runner_run()` (`bt` or `bt-full`) |
 
 ---
 
@@ -71,7 +80,7 @@ scanner-standalone/
         │
         └── classic_scanner_run() esp_bt_gap_start_discovery (no SDP in v1)
 
-  bt_stack_shutdown()  between phases in `bt` / `sweep_all`
+  bt_stack_shutdown()  between phases in `bt` / `bt-full`
 ```
 
 **device_record** fields include: radio type, MAC, RSSI, name, Classic COD, BLE appearance/manufacturer data, optional raw adv bytes.
@@ -110,7 +119,8 @@ First build applies [`sdkconfig.defaults`](sdkconfig.defaults): Bluedroid dual-m
 | Phase 1 goal | This repo |
 |--------------|-----------|
 | Classic + BLE discovery | **Done** (GAP/inquiry) |
-| Device table for panel | **device_cache** (serial summary today) |
+| Device table for panel | **device_cache** (live serial + count footer) |
+| UART telemetry to CrowPanel (Wi‑Fi / BLE / Classic) | **Done** (NDJSON on UART2) |
 | ESP‑NOW sender | Not yet |
 | nRF24 sweep | Probe only; scan stub |
 
@@ -123,7 +133,7 @@ First build applies [`sdkconfig.defaults`](sdkconfig.defaults): Bluedroid dual-m
 | Build: IRAM overflow | Use `sdkconfig.defaults`; disable GATTS/GATTC/SMP |
 | Build: app partition too small | `CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE` in defaults |
 | No BLE devices | Active scan needs nearby advertisers; try `bt-ble` |
-| No Classic devices | Inquiry ~11 s; phones may need to be discoverable |
+| No Classic devices | Inquiry ~30 s; phones may need to be discoverable |
 | Wi‑Fi after BT fails | Type `stop`; guard should deinit BT — check logs for `heap free` |
 | Wrong LED polarity | Swap levels in `board_config.h` |
 

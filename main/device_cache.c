@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "telemetry_emit.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -72,30 +73,40 @@ esp_err_t device_cache_upsert(const device_record_t *rec)
     int idx = find_slot(&copy);
     if (idx >= 0) {
         device_record_t *slot = &s_table[idx];
+        bool log_update = false;
+
         if (copy.rssi > slot->rssi) {
             slot->rssi = copy.rssi;
         }
         if (copy.name_len > slot->name_len) {
             memcpy(slot->name, copy.name, sizeof(slot->name));
             slot->name_len = copy.name_len;
+            log_update = true;
         }
-        if (copy.cod != 0) {
+        if (copy.cod != 0 && slot->cod == 0) {
             slot->cod = copy.cod;
+            log_update = true;
         }
-        if (copy.appearance != 0) {
+        if (copy.appearance != 0 && slot->appearance == 0) {
             slot->appearance = copy.appearance;
+            log_update = true;
         }
-        if (copy.mfg_data_len > 0) {
+        if (copy.mfg_data_len > slot->mfg_data_len) {
             slot->mfg_company_id = copy.mfg_company_id;
             slot->mfg_data_len = copy.mfg_data_len;
             memcpy(slot->mfg_data, copy.mfg_data, copy.mfg_data_len);
+            log_update = true;
         }
-        if (copy.adv_raw_len > 0) {
+        if (copy.adv_raw_len > slot->adv_raw_len) {
             slot->adv_raw_len = copy.adv_raw_len;
             memcpy(slot->adv_raw, copy.adv_raw, copy.adv_raw_len);
         }
         slot->last_seen_ms = copy.last_seen_ms;
         xSemaphoreGive(s_mux);
+        if (log_update) {
+            device_cache_log_record(slot);
+            telemetry_emit_record(slot);
+        }
         return ESP_OK;
     }
 
@@ -107,7 +118,10 @@ esp_err_t device_cache_upsert(const device_record_t *rec)
     s_table[s_count] = copy;
     s_table[s_count].valid = true;
     s_count++;
+    device_record_t logged = s_table[s_count - 1];
     xSemaphoreGive(s_mux);
+    device_cache_log_record(&logged);
+    telemetry_emit_record(&logged);
     return ESP_OK;
 }
 
@@ -137,9 +151,11 @@ void device_cache_foreach(device_cache_foreach_cb_t cb, void *ctx)
     xSemaphoreGive(s_mux);
 }
 
-static void log_one_cb(const device_record_t *rec, void *ctx)
+void device_cache_log_record(const device_record_t *rec)
 {
-    (void)ctx;
+    if (rec == NULL || !rec->valid) {
+        return;
+    }
     char mac[18];
     snprintf(mac, sizeof(mac), "%02x:%02x:%02x:%02x:%02x:%02x",
              rec->addr[0], rec->addr[1], rec->addr[2],
@@ -151,6 +167,16 @@ static void log_one_cb(const device_record_t *rec, void *ctx)
     case SCAN_RADIO_NRF24:   radio = "NRF"; break;
     default: break;
     }
+    if (rec->radio == SCAN_RADIO_CLASSIC && rec->cod != 0) {
+        if (rec->name_len > 0) {
+            ESP_LOGI(TAG, "[%s] %s rssi=%d cod=0x%06lx name=%s",
+                     radio, mac, rec->rssi, (unsigned long)rec->cod, rec->name);
+        } else {
+            ESP_LOGI(TAG, "[%s] %s rssi=%d cod=0x%06lx",
+                     radio, mac, rec->rssi, (unsigned long)rec->cod);
+        }
+        return;
+    }
     if (rec->name_len > 0) {
         ESP_LOGI(TAG, "[%s] %s rssi=%d name=%s", radio, mac, rec->rssi, rec->name);
     } else {
@@ -160,6 +186,6 @@ static void log_one_cb(const device_record_t *rec, void *ctx)
 
 void device_cache_log_summary(void)
 {
-    ESP_LOGI(TAG, "=== devices: %u ===", (unsigned)device_cache_count());
-    device_cache_foreach(log_one_cb, NULL);
+    ESP_LOGI(TAG, "=== scan complete: %u device(s) in cache ===",
+             (unsigned)device_cache_count());
 }

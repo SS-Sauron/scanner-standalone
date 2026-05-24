@@ -1,5 +1,5 @@
 /*
- * sweep_runner.h — sweep_all macro orchestration
+ * sweep_runner.h — bt / bt-full macro orchestration
  */
 
 #ifndef SWEEP_RUNNER_H

@@ -13,13 +13,10 @@
 #include "classic_scanner.h"
 #include "device_cache.h"
 #include "radio_guard.h"
+#include "scanner_config.h"
 #include "scanner_types.h"
 
 static const char *TAG = "bt_scan";
-
-#define BLE_PHASE_MS      10000
-#define CLASSIC_PHASE_MS  11000
-#define HEAP_PAUSE_MS     300
 
 esp_err_t bt_scanner_run(scanner_mode_t active_mode)
 {
@@ -38,9 +35,9 @@ esp_err_t bt_scanner_run(scanner_mode_t active_mode)
         return err;
     }
 
-    err = ble_scanner_run(BLE_PHASE_MS, active_mode);
+    err = ble_scanner_run(SCAN_BLE_DURATION_MS, active_mode);
     bt_stack_shutdown();
-    vTaskDelay(pdMS_TO_TICKS(HEAP_PAUSE_MS));
+    vTaskDelay(pdMS_TO_TICKS(SCAN_BT_PHASE_PAUSE_MS));
     radio_guard_log_heap(TAG);
 
     if (mode_get() != active_mode) {
@@ -50,12 +47,13 @@ esp_err_t bt_scanner_run(scanner_mode_t active_mode)
 
     err = bt_stack_init();
     if (err != ESP_OK) {
+        device_cache_log_summary();
         return err;
     }
 
-    err = classic_scanner_run(CLASSIC_PHASE_MS, active_mode);
+    err = classic_scanner_run(SCAN_CLASSIC_DURATION_MS, active_mode);
     bt_stack_shutdown();
-    vTaskDelay(pdMS_TO_TICKS(HEAP_PAUSE_MS));
+    vTaskDelay(pdMS_TO_TICKS(SCAN_BT_PHASE_PAUSE_MS));
     radio_guard_log_heap(TAG);
 
     device_cache_log_summary();

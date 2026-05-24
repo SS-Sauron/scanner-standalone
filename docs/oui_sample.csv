@@ -1,0 +1,5 @@
+# Sample OUI lines — copy to CrowPanel SD: /sdcard/oui/oui.csv
+# Lines starting with # are ignored by firmware
+24:6F:28,Espressif Inc.
+F4:5E:AB,Apple Inc.
+00:50:F2,Microsoft Corp.

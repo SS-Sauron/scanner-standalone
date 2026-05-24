@@ -15,7 +15,7 @@ typedef enum {
     MODE_WIFI         = 1,  /* Supervisor is inside wifi_scanner_run() */
     MODE_BT           = 2,  /* BLE scan only */
     MODE_BT_CLASSIC   = 3,  /* Classic inquiry only */
-    MODE_SWEEP        = 4,  /* sweep_all / bt dual-scan macro */
+    MODE_SWEEP        = 4,  /* bt / bt-full dual-scan macro */
 } scanner_mode_t;
 
 /*

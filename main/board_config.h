@@ -9,6 +9,7 @@
 #define BOARD_CONFIG_H
 
 #include "driver/gpio.h"
+#include "driver/uart.h"
 
 /* On-board scan-active LED (active high on typical DOIT boards) */
 #define SCAN_LED_GPIO           GPIO_NUM_2
@@ -29,5 +30,14 @@
 
 /* nRF24 CONFIG register (read during probe) */
 #define NRF24L01_REG_CONFIG     0x08
+
+/* -------------------------------------------------------------------------- */
+/* UART telemetry link to CrowPanel (UART1-OUT: cross-wire TX/RX + GND)       */
+/* -------------------------------------------------------------------------- */
+
+#define TELEMETRY_UART_NUM      UART_NUM_2
+#define TELEMETRY_UART_TX_GPIO  GPIO_NUM_17
+#define TELEMETRY_UART_RX_GPIO  GPIO_NUM_16
+#define TELEMETRY_UART_BAUD     460800
 
 #endif /* BOARD_CONFIG_H */

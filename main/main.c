@@ -3,7 +3,7 @@
  *
  * Architecture (tasks, modes, boot order): see README.md in the repo root.
  *
- * Serial: wifi | bt-ble | bt-classic | bt | sweep_all | stop
+ * Serial: wifi | bt-ble | bt-classic | bt | bt-full | stop
  */
 
 #include <stdio.h>
@@ -34,6 +34,8 @@
 #include "nrf24_scanner.h"
 #include "device_cache.h"
 #include "radio_guard.h"
+#include "scanner_config.h"
+#include "telemetry_uart.h"
 
 static const char *TAG = "main";
 
@@ -125,7 +127,10 @@ static bool cmd_is(const char *s, const char *word)
 
 static void print_help(void)
 {
-    ESP_LOGI(TAG, "Commands: wifi | bt-ble | bt-classic | bt | sweep_all | stop");
+    ESP_LOGI(TAG, "Commands: wifi | bt-ble | bt-classic | bt | bt-full | stop");
+    ESP_LOGI(TAG, "  bt = BLE+Classic (~%us+%us); bt-full = same + nRF if fitted",
+             (unsigned)(SCAN_BLE_DURATION_MS / 1000),
+             (unsigned)(SCAN_CLASSIC_DURATION_MS / 1000));
 }
 
 static void command_task(void *arg)
@@ -151,10 +156,13 @@ static void command_task(void *arg)
                 sweep_runner_set_include_nrf(false);
                 mode_set(MODE_SWEEP);
                 ESP_LOGI(TAG, "→ BLE + Classic scan");
-            } else if (cmd_is(buf, "sweep_all")) {
+            } else if (cmd_is(buf, "bt-full") || cmd_is(buf, "sweep_all")) {
+                if (cmd_is(buf, "sweep_all")) {
+                    ESP_LOGW(TAG, "sweep_all renamed to bt-full");
+                }
                 sweep_runner_set_include_nrf(true);
                 mode_set(MODE_SWEEP);
-                ESP_LOGI(TAG, "→ sweep_all");
+                ESP_LOGI(TAG, "→ bt-full (BLE + Classic + nRF if fitted)");
             } else if (cmd_is(buf, "stop")) {
                 mode_set(MODE_IDLE);
                 radio_guard_all_off();
@@ -167,9 +175,6 @@ static void command_task(void *arg)
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
-
-#define BLE_ONLY_MS      10000
-#define CLASSIC_ONLY_MS  11000
 
 static void supervisor_task(void *arg)
 {
@@ -187,12 +192,14 @@ static void supervisor_task(void *arg)
         case MODE_BT: {
             esp_err_t err = radio_guard_prepare_bt();
             if (err != ESP_OK) {
+                ESP_LOGE(TAG, "BT guard failed: %s", esp_err_to_name(err));
+                mode_set(MODE_IDLE);
                 break;
             }
             device_cache_clear();
             err = bt_stack_init();
             if (err == ESP_OK) {
-                err = ble_scanner_run(BLE_ONLY_MS, MODE_BT);
+                err = ble_scanner_run(SCAN_BLE_DURATION_MS, MODE_BT);
                 bt_stack_shutdown();
             }
             radio_guard_log_heap(TAG);
@@ -205,12 +212,14 @@ static void supervisor_task(void *arg)
         case MODE_BT_CLASSIC: {
             esp_err_t err = radio_guard_prepare_bt();
             if (err != ESP_OK) {
+                ESP_LOGE(TAG, "BT guard failed: %s", esp_err_to_name(err));
+                mode_set(MODE_IDLE);
                 break;
             }
             device_cache_clear();
             err = bt_stack_init();
             if (err == ESP_OK) {
-                err = classic_scanner_run(CLASSIC_ONLY_MS, MODE_BT_CLASSIC);
+                err = classic_scanner_run(SCAN_CLASSIC_DURATION_MS, MODE_BT_CLASSIC);
                 bt_stack_shutdown();
             }
             radio_guard_log_heap(TAG);
@@ -260,6 +269,11 @@ void app_main(void)
     scan_led_init();
     nrf24_probe_on_boot();
     device_cache_init();
+
+    ret = telemetry_uart_init();
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "Telemetry UART init: %s (panel link disabled)", esp_err_to_name(ret));
+    }
 
     ESP_ERROR_CHECK(uart_driver_install(CONFIG_ESP_CONSOLE_UART_NUM,
                                         256, 0, 0, NULL, 0));

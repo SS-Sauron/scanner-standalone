@@ -10,6 +10,9 @@
 #include "radio_guard.h"
 
 #include <inttypes.h>
+#include <stdlib.h>
+
+#include "telemetry_proto.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -17,6 +20,10 @@
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
+#include "esp_timer.h"
+
+#include "telemetry_encode.h"
+#include "telemetry_uart.h"
 
 static const char *TAG = "wifi_scan";
 
@@ -99,11 +106,35 @@ static void scan_once(void)
 
     uint16_t ap_count = 0;
     ret = esp_wifi_scan_get_ap_num(&ap_count);
-    if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "Found %" PRIu16 " access point(s)", ap_count);
-    } else {
+    if (ret != ESP_OK) {
         ESP_LOGE(TAG, "esp_wifi_scan_get_ap_num failed: %s",
                  esp_err_to_name(ret));
+        scan_cleanup_ap_list();
+        return;
+    }
+
+    ESP_LOGI(TAG, "Found %" PRIu16 " access point(s)", ap_count);
+
+    if (ap_count > 0) {
+        wifi_ap_record_t *records = calloc(ap_count, sizeof(wifi_ap_record_t));
+        if (records != NULL) {
+            uint16_t n = ap_count;
+            ret = esp_wifi_scan_get_ap_records(&n, records);
+            if (ret == ESP_OK) {
+                uint32_t ts = (uint32_t)(esp_timer_get_time() / 1000);
+                char line[TELEMETRY_LINE_MAX];
+                for (uint16_t i = 0; i < n; i++) {
+                    if (telemetry_encode_wifi(&records[i], ts, line, sizeof(line)) == ESP_OK) {
+                        telemetry_uart_write_line(line);
+                    }
+                }
+            } else {
+                ESP_LOGE(TAG, "get_ap_records: %s", esp_err_to_name(ret));
+            }
+            free(records);
+        } else {
+            ESP_LOGE(TAG, "calloc ap records failed");
+        }
     }
 
     scan_cleanup_ap_list();
