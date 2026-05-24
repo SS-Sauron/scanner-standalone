@@ -142,3 +142,4 @@ First build applies [`sdkconfig.defaults`](sdkconfig.defaults): Bluedroid dual-m
 ## License / ethics
 
 For **security research and learning** on hardware you own. Do not monitor networks or devices without permission.
+# crowpanel-standalone
