@@ -59,10 +59,10 @@ Think of the firmware as **three workers** plus **one boss**:
   YOU (serial monitor)
        │
        ▼
-  ┌─────────────┐     sets mode      ┌──────────────────┐
-  │ command_task│ ────────────────► │  mode (IDLE/WIFI/ │
-  │  reads wifi, │                   │       BT)        │
-  │  bt, stop    │                   └────────┬─────────┘
+  ┌─────────────┐     sets mode     ┌──────────────────┐
+  │ command_task│ ────────────────► │  mode (IDLE/WIFI/│
+  │  reads wifi,│                   │       BT)        │
+  │  bt, stop   │                   └────────┬─────────┘
   └─────────────┘                            │
                                              ▼
                                     ┌──────────────────┐
