@@ -7,6 +7,7 @@
 
 #include "wifi_scanner.h"
 #include "scanner_types.h"
+#include "radio_guard.h"
 
 #include <inttypes.h>
 
@@ -110,6 +111,11 @@ static void scan_once(void)
 
 esp_err_t wifi_scanner_run(void)
 {
+    esp_err_t guard = radio_guard_prepare_wifi();
+    if (guard != ESP_OK) {
+        return guard;
+    }
+
     ESP_LOGI(TAG, "Starting Wi-Fi driver...");
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
@@ -132,6 +138,7 @@ esp_err_t wifi_scanner_run(void)
         esp_wifi_deinit();
         return ret;
     }
+    radio_guard_wifi_mark_up();
 
     ESP_LOGI(TAG, "Scanning every ~5 s  (type 'stop' to exit)");
 
@@ -158,6 +165,8 @@ esp_err_t wifi_scanner_run(void)
         }
     }
 
+    radio_guard_wifi_mark_down();
+    radio_guard_log_heap(TAG);
     ESP_LOGI(TAG, "Wi-Fi stopped");
     return err;
 }

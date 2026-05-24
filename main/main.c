@@ -3,8 +3,7 @@
  *
  * Architecture (tasks, modes, boot order): see README.md in the repo root.
  *
- * Serial commands (115200 baud): wifi | bt | stop
- * Hardware: ESP32-D0WD, DOIT DevKit V1 (blue LED on GPIO 2)
+ * Serial: wifi | bt-ble | bt-classic | bt | sweep_all | stop
  */
 
 #include <stdio.h>
@@ -25,15 +24,18 @@
 #include "driver/uart_vfs.h"
 #include "esp_wifi_default.h"
 
+#include "board_config.h"
 #include "scanner_types.h"
 #include "wifi_scanner.h"
+#include "bt_stack.h"
+#include "ble_scanner.h"
+#include "classic_scanner.h"
+#include "sweep_runner.h"
+#include "nrf24_scanner.h"
+#include "device_cache.h"
+#include "radio_guard.h"
 
 static const char *TAG = "main";
-
-/* On-board LED: swap ON/OFF if your board uses active-low wiring (see README) */
-#define SCAN_LED_GPIO       GPIO_NUM_2
-#define SCAN_LED_LEVEL_ON   1
-#define SCAN_LED_LEVEL_OFF  0
 
 static void scan_led_init(void)
 {
@@ -48,17 +50,16 @@ static void scan_led_init(void)
     gpio_set_level(SCAN_LED_GPIO, SCAN_LED_LEVEL_OFF);
 }
 
-/* Called from mode_set() so LED always matches wifi/bt vs idle/stop */
 static void scan_led_apply(scanner_mode_t mode)
 {
     int level = SCAN_LED_LEVEL_OFF;
-    if (mode == MODE_WIFI || mode == MODE_BT) {
+    if (mode == MODE_WIFI || mode == MODE_BT || mode == MODE_BT_CLASSIC ||
+        mode == MODE_SWEEP)
+    {
         level = SCAN_LED_LEVEL_ON;
     }
     gpio_set_level(SCAN_LED_GPIO, level);
 }
-
-/* ── Mode subsystem (see scanner_types.h) ─────────────────────────────────── */
 
 #define MODE_CHANGED_BIT  BIT0
 
@@ -94,7 +95,6 @@ scanner_mode_t mode_wait_change(uint32_t timeout_ms)
     return mode_get();
 }
 
-/* Strip spaces and CR/LF so "wifi\r\n" matches exactly */
 static void cmd_trim(char *s)
 {
     if (s == NULL || *s == '\0') {
@@ -123,67 +123,113 @@ static bool cmd_is(const char *s, const char *word)
     return s != NULL && word != NULL && strcmp(s, word) == 0;
 }
 
-/* Placeholder until real Bluedroid scanner lands (Grand Plan Phase 1) */
-static void bt_scanner_run(void)
+static void print_help(void)
 {
-    ESP_LOGI(TAG, "Bluetooth scanner started (placeholder — Stage 3)");
-    while (mode_get() == MODE_BT) {
-        mode_wait_change(1000);
-    }
-    ESP_LOGI(TAG, "Bluetooth scanner stopped");
+    ESP_LOGI(TAG, "Commands: wifi | bt-ble | bt-classic | bt | sweep_all | stop");
 }
 
-/*
- * command_task — reads serial input only; never runs Wi-Fi/BT itself.
- * Typing a command calls mode_set(); supervisor_task does the real work.
- */
 static void command_task(void *arg)
 {
     char buf[64];
+    print_help();
     while (1) {
         if (fgets(buf, sizeof(buf), stdin) != NULL) {
             cmd_trim(buf);
             if (buf[0] == '\0') {
-                /* empty line */
-            } else if (cmd_is(buf, "wifi")) {
+                continue;
+            }
+            if (cmd_is(buf, "wifi")) {
                 mode_set(MODE_WIFI);
                 ESP_LOGI(TAG, "→ Wi-Fi mode");
-            } else if (cmd_is(buf, "bt")) {
+            } else if (cmd_is(buf, "bt-ble")) {
                 mode_set(MODE_BT);
-                ESP_LOGI(TAG, "→ Bluetooth mode");
+                ESP_LOGI(TAG, "→ BLE scan");
+            } else if (cmd_is(buf, "bt-classic")) {
+                mode_set(MODE_BT_CLASSIC);
+                ESP_LOGI(TAG, "→ Classic scan");
+            } else if (cmd_is(buf, "bt")) {
+                sweep_runner_set_include_nrf(false);
+                mode_set(MODE_SWEEP);
+                ESP_LOGI(TAG, "→ BLE + Classic scan");
+            } else if (cmd_is(buf, "sweep_all")) {
+                sweep_runner_set_include_nrf(true);
+                mode_set(MODE_SWEEP);
+                ESP_LOGI(TAG, "→ sweep_all");
             } else if (cmd_is(buf, "stop")) {
                 mode_set(MODE_IDLE);
+                radio_guard_all_off();
                 ESP_LOGI(TAG, "→ Idle");
             } else {
-                ESP_LOGW(TAG, "Unknown command. Use: wifi | bt | stop");
+                ESP_LOGW(TAG, "Unknown command");
+                print_help();
             }
         }
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 
-/*
- * supervisor_task — picks which scanner to run based on mode.
- * Blocking calls (e.g. wifi_scanner_run) live here, not in command_task.
- */
+#define BLE_ONLY_MS      10000
+#define CLASSIC_ONLY_MS  11000
+
 static void supervisor_task(void *arg)
 {
-    ESP_LOGI(TAG, "Supervisor ready — commands: wifi | bt | stop");
+    ESP_LOGI(TAG, "Supervisor ready");
     while (1) {
         switch (mode_get()) {
         case MODE_WIFI: {
             esp_err_t err = wifi_scanner_run();
             if (err != ESP_OK) {
-                ESP_LOGE(TAG, "Wi-Fi scanner error: %s — returning to idle",
-                         esp_err_to_name(err));
+                ESP_LOGE(TAG, "Wi-Fi error: %s", esp_err_to_name(err));
                 mode_set(MODE_IDLE);
             }
             break;
         }
-        case MODE_BT:
-            bt_scanner_run();
+        case MODE_BT: {
+            esp_err_t err = radio_guard_prepare_bt();
+            if (err != ESP_OK) {
+                break;
+            }
+            device_cache_clear();
+            err = bt_stack_init();
+            if (err == ESP_OK) {
+                err = ble_scanner_run(BLE_ONLY_MS, MODE_BT);
+                bt_stack_shutdown();
+            }
+            radio_guard_log_heap(TAG);
+            device_cache_log_summary();
+            if (mode_get() == MODE_BT) {
+                mode_set(MODE_IDLE);
+            }
             break;
-
+        }
+        case MODE_BT_CLASSIC: {
+            esp_err_t err = radio_guard_prepare_bt();
+            if (err != ESP_OK) {
+                break;
+            }
+            device_cache_clear();
+            err = bt_stack_init();
+            if (err == ESP_OK) {
+                err = classic_scanner_run(CLASSIC_ONLY_MS, MODE_BT_CLASSIC);
+                bt_stack_shutdown();
+            }
+            radio_guard_log_heap(TAG);
+            device_cache_log_summary();
+            if (mode_get() == MODE_BT_CLASSIC) {
+                mode_set(MODE_IDLE);
+            }
+            break;
+        }
+        case MODE_SWEEP: {
+            esp_err_t err = sweep_runner_run();
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "sweep error: %s", esp_err_to_name(err));
+            }
+            if (mode_get() == MODE_SWEEP) {
+                mode_set(MODE_IDLE);
+            }
+            break;
+        }
         case MODE_IDLE:
         default:
             xEventGroupWaitBits(s_mode_eg,
@@ -196,13 +242,8 @@ static void supervisor_task(void *arg)
     }
 }
 
-/*
- * app_main — runs once at boot, then FreeRTOS tasks take over.
- * Step numbers match README.md "Walkthrough: boot sequence".
- */
 void app_main(void)
 {
-    /* 1. NVS (flash storage for Wi-Fi calibration, etc.) */
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
         ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
@@ -213,13 +254,13 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
     ESP_LOGI(TAG, "NVS OK");
 
-    /* 2. Synchronisation for mode_wait_change / idle wait */
     s_mode_eg = xEventGroupCreate();
     configASSERT(s_mode_eg != NULL);
 
     scan_led_init();
+    nrf24_probe_on_boot();
+    device_cache_init();
 
-    /* 3. USB serial: blocking stdin so fgets() waits for your commands */
     ESP_ERROR_CHECK(uart_driver_install(CONFIG_ESP_CONSOLE_UART_NUM,
                                         256, 0, 0, NULL, 0));
     uart_vfs_dev_use_driver(CONFIG_ESP_CONSOLE_UART_NUM);
@@ -232,22 +273,19 @@ void app_main(void)
     }
     ESP_LOGI(TAG, "stdin blocking OK");
 
-    /* 4. Network stack — kept alive for whole program (future ESP-NOW) */
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     esp_netif_t *sta = esp_netif_create_default_wifi_sta();
     assert(sta != NULL);
     ESP_LOGI(TAG, "TCP/IP stack OK");
 
-    /* 5. One-time scanner setup (Wi-Fi event handler registration) */
     ESP_ERROR_CHECK(wifi_scanner_init());
 
-    /* 6. Start command reader and mode supervisor */
     if (xTaskCreate(command_task, "cmd_task", 4096, NULL, 1, NULL) != pdPASS) {
         ESP_LOGE(TAG, "Failed to create cmd_task");
         abort();
     }
-    if (xTaskCreate(supervisor_task, "supervisor", 8192, NULL, 5, NULL) != pdPASS) {
+    if (xTaskCreate(supervisor_task, "supervisor", 16384, NULL, 5, NULL) != pdPASS) {
         ESP_LOGE(TAG, "Failed to create supervisor task");
         abort();
     }

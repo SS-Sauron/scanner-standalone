@@ -11,9 +11,11 @@
 
 /* What the chip is doing right now (only one at a time). */
 typedef enum {
-    MODE_IDLE = 0,  /* Waiting — no scanner running */
-    MODE_WIFI = 1,  /* Supervisor is inside wifi_scanner_run() */
-    MODE_BT   = 2,  /* Supervisor is in BT path (placeholder today) */
+    MODE_IDLE         = 0,  /* Waiting — no scanner running */
+    MODE_WIFI         = 1,  /* Supervisor is inside wifi_scanner_run() */
+    MODE_BT           = 2,  /* BLE scan only */
+    MODE_BT_CLASSIC   = 3,  /* Classic inquiry only */
+    MODE_SWEEP        = 4,  /* sweep_all / bt dual-scan macro */
 } scanner_mode_t;
 
 /*
