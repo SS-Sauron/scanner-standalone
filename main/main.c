@@ -36,6 +36,7 @@
 #include "radio_guard.h"
 #include "scanner_config.h"
 #include "telemetry_uart.h"
+#include "espnow_link.h"
 
 static const char *TAG = "main";
 
@@ -292,6 +293,11 @@ void app_main(void)
     esp_netif_t *sta = esp_netif_create_default_wifi_sta();
     assert(sta != NULL);
     ESP_LOGI(TAG, "TCP/IP stack OK");
+
+    ret = espnow_link_init();
+    if (ret != ESP_OK) {
+        ESP_LOGW(TAG, "ESP-NOW init: %s (panel link disabled)", esp_err_to_name(ret));
+    }
 
     ESP_ERROR_CHECK(wifi_scanner_init());
 

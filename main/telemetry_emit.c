@@ -3,6 +3,7 @@
 #include "telemetry_encode.h"
 #include "telemetry_proto.h"
 #include "telemetry_uart.h"
+#include "espnow_link.h"
 
 void telemetry_emit_record(const device_record_t *rec)
 {
@@ -15,4 +16,5 @@ void telemetry_emit_record(const device_record_t *rec)
         return;
     }
     telemetry_uart_write_line(line);
+    espnow_link_send_device(rec);
 }

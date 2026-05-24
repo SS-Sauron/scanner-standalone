@@ -14,10 +14,13 @@ idf_component_register(
         "telemetry_encode.c"
         "telemetry_uart.c"
         "telemetry_emit.c"
+        "espnow_link.c"
     INCLUDE_DIRS "."
     REQUIRES
+        espnow_proto
         nvs_flash
         esp_wifi
+        esp_event
         esp_driver_uart
         esp_driver_gpio
         esp_driver_spi

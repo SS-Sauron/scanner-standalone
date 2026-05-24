@@ -9,6 +9,7 @@
 #include "esp_heap_caps.h"
 
 #include "bt_stack.h"
+#include "espnow_link.h"
 
 static const char *TAG = "radio_guard";
 
@@ -32,7 +33,8 @@ void radio_guard_all_off(void)
 
 esp_err_t radio_guard_prepare_bt(void)
 {
-    if (s_wifi_up) {
+    /* Keep Wi-Fi up when ESP-NOW is active (panel link over the air). */
+    if (s_wifi_up && !espnow_link_wifi_held()) {
         esp_err_t ret = esp_wifi_stop();
         if (ret != ESP_OK) {
             ESP_LOGW(TAG, "esp_wifi_stop: %s", esp_err_to_name(ret));

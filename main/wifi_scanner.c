@@ -24,6 +24,7 @@
 
 #include "telemetry_encode.h"
 #include "telemetry_uart.h"
+#include "espnow_link.h"
 
 static const char *TAG = "wifi_scan";
 
@@ -127,6 +128,7 @@ static void scan_once(void)
                     if (telemetry_encode_wifi(&records[i], ts, line, sizeof(line)) == ESP_OK) {
                         telemetry_uart_write_line(line);
                     }
+                    espnow_link_send_wifi_ap(&records[i], ts);
                 }
             } else {
                 ESP_LOGE(TAG, "get_ap_records: %s", esp_err_to_name(ret));
@@ -151,7 +153,7 @@ esp_err_t wifi_scanner_run(void)
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     esp_err_t ret = esp_wifi_init(&cfg);
-    if (ret != ESP_OK) {
+    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
         ESP_LOGE(TAG, "esp_wifi_init failed: %s", esp_err_to_name(ret));
         return ret;
     }
@@ -159,14 +161,18 @@ esp_err_t wifi_scanner_run(void)
     ret = esp_wifi_set_mode(WIFI_MODE_STA);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "esp_wifi_set_mode failed: %s", esp_err_to_name(ret));
-        esp_wifi_deinit();
+        if (!espnow_link_wifi_held()) {
+            esp_wifi_deinit();
+        }
         return ret;
     }
 
     ret = esp_wifi_start();
-    if (ret != ESP_OK) {
+    if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) {
         ESP_LOGE(TAG, "esp_wifi_start failed: %s", esp_err_to_name(ret));
-        esp_wifi_deinit();
+        if (!espnow_link_wifi_held()) {
+            esp_wifi_deinit();
+        }
         return ret;
     }
     radio_guard_wifi_mark_up();
@@ -179,24 +185,26 @@ esp_err_t wifi_scanner_run(void)
         mode_wait_change(5000);
     }
 
-    ESP_LOGI(TAG, "Stopping Wi-Fi driver...");
     esp_err_t err = ESP_OK;
 
-    ret = esp_wifi_stop();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "esp_wifi_stop failed: %s", esp_err_to_name(ret));
-        err = ret;
-    }
-
-    ret = esp_wifi_deinit();
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "esp_wifi_deinit failed: %s", esp_err_to_name(ret));
-        if (err == ESP_OK) {
+    if (!espnow_link_wifi_held()) {
+        ESP_LOGI(TAG, "Stopping Wi-Fi driver...");
+        ret = esp_wifi_stop();
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "esp_wifi_stop failed: %s", esp_err_to_name(ret));
             err = ret;
         }
+        ret = esp_wifi_deinit();
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "esp_wifi_deinit failed: %s", esp_err_to_name(ret));
+            if (err == ESP_OK) {
+                err = ret;
+            }
+        }
+        radio_guard_wifi_mark_down();
+    } else {
+        ESP_LOGI(TAG, "Wi-Fi scan mode ended (STA kept up for ESP-NOW)");
     }
-
-    radio_guard_wifi_mark_down();
     radio_guard_log_heap(TAG);
     ESP_LOGI(TAG, "Wi-Fi stopped");
     return err;

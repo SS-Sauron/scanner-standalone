@@ -40,4 +40,13 @@
 #define TELEMETRY_UART_RX_GPIO  GPIO_NUM_16
 #define TELEMETRY_UART_BAUD     460800
 
+/* -------------------------------------------------------------------------- */
+/* ESP-NOW link to CrowPanel (Wi-Fi STA MAC — not Bluetooth MAC)              */
+/* -------------------------------------------------------------------------- */
+
+#define ESPNOW_WIFI_CHANNEL     1
+
+/* CrowPanel ESP32-S3 Wi-Fi MAC (ttyACM0 / esptool) */
+#define ESPNOW_PEER_PANEL_MAC   {0x34, 0xCD, 0xB0, 0x0A, 0x5A, 0xE8}
+
 #endif /* BOARD_CONFIG_H */
