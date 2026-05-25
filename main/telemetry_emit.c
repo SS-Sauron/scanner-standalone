@@ -16,5 +16,7 @@ void telemetry_emit_record(const device_record_t *rec)
         return;
     }
     telemetry_uart_write_line(line);
-    espnow_link_send_device(rec);
+    if (espnow_link_ready()) {
+        espnow_link_send_device(rec);
+    }
 }

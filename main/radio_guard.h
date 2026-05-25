@@ -14,5 +14,6 @@ void radio_guard_log_heap(const char *tag);
 
 void radio_guard_wifi_mark_up(void);
 void radio_guard_wifi_mark_down(void);
+void radio_guard_wifi_teardown(void);
 
 #endif /* RADIO_GUARD_H */

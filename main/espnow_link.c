@@ -23,6 +23,7 @@ static const char *TAG = "espnow";
 
 static bool s_ready;
 static bool s_wifi_up;
+static bool s_espnow_inited;
 static SemaphoreHandle_t s_wifi_mux;
 static int64_t s_last_tx_us;
 
@@ -64,6 +65,16 @@ static void send_cb(const esp_now_send_info_t *tx_info, esp_now_send_status_t st
     }
 }
 
+void espnow_link_on_wifi_down(void)
+{
+    if (s_espnow_inited) {
+        esp_now_deinit();
+        s_espnow_inited = false;
+    }
+    s_wifi_up = false;
+    radio_guard_wifi_mark_down();
+}
+
 static esp_err_t wifi_ensure_started(void)
 {
     if (s_wifi_mux == NULL) {
@@ -95,6 +106,7 @@ static esp_err_t wifi_ensure_started(void)
         if (ret != ESP_OK) {
             ESP_LOGW(TAG, "set_channel: %s", esp_err_to_name(ret));
         }
+        esp_wifi_set_ps(WIFI_PS_NONE);
         s_wifi_up = true;
         radio_guard_wifi_mark_up();
         ESP_LOGI(TAG, "Wi-Fi STA up (ESP-NOW channel %d)", ESPNOW_WIFI_CHANNEL);
@@ -131,15 +143,15 @@ static esp_err_t add_panel_peer(void)
     return ret;
 }
 
-esp_err_t espnow_link_init(void)
+static esp_err_t espnow_stack_ensure(void)
 {
-    if (s_ready) {
-        return ESP_OK;
-    }
-
     esp_err_t ret = wifi_ensure_started();
     if (ret != ESP_OK) {
         return ret;
+    }
+
+    if (s_espnow_inited) {
+        return ESP_OK;
     }
 
     ret = esp_now_init();
@@ -151,12 +163,29 @@ esp_err_t espnow_link_init(void)
     ret = esp_now_register_send_cb(send_cb);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "register_send_cb: %s", esp_err_to_name(ret));
+        esp_now_deinit();
         return ret;
     }
 
     ret = add_panel_peer();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "add_peer panel: %s", esp_err_to_name(ret));
+        esp_now_deinit();
+        return ret;
+    }
+
+    s_espnow_inited = true;
+    return ESP_OK;
+}
+
+esp_err_t espnow_link_init(void)
+{
+    if (s_ready) {
+        return espnow_stack_ensure();
+    }
+
+    esp_err_t ret = espnow_stack_ensure();
+    if (ret != ESP_OK) {
         return ret;
     }
 
@@ -168,9 +197,17 @@ esp_err_t espnow_link_init(void)
     return ESP_OK;
 }
 
+esp_err_t espnow_link_recover(void)
+{
+    if (!s_ready) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return espnow_stack_ensure();
+}
+
 bool espnow_link_ready(void)
 {
-    return s_ready;
+    return s_ready && s_wifi_up && s_espnow_inited;
 }
 
 bool espnow_link_wifi_held(void)
@@ -187,7 +224,7 @@ static esp_err_t send_command(const command_t *cmd)
         return ESP_ERR_INVALID_STATE;
     }
 
-    esp_err_t ret = wifi_ensure_started();
+    esp_err_t ret = espnow_stack_ensure();
     if (ret != ESP_OK) {
         return ret;
     }

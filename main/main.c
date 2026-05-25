@@ -200,8 +200,13 @@ static void supervisor_task(void *arg)
             device_cache_clear();
             err = bt_stack_init();
             if (err == ESP_OK) {
+                esp_err_t enow = espnow_link_recover();
+                if (enow != ESP_OK) {
+                    ESP_LOGW(TAG, "ESP-NOW recover before BLE: %s", esp_err_to_name(enow));
+                }
                 err = ble_scanner_run(SCAN_BLE_DURATION_MS, MODE_BT);
                 bt_stack_shutdown();
+                espnow_link_recover();
             }
             radio_guard_log_heap(TAG);
             device_cache_log_summary();
@@ -220,8 +225,13 @@ static void supervisor_task(void *arg)
             device_cache_clear();
             err = bt_stack_init();
             if (err == ESP_OK) {
+                esp_err_t enow = espnow_link_recover();
+                if (enow != ESP_OK) {
+                    ESP_LOGW(TAG, "ESP-NOW recover before classic: %s", esp_err_to_name(enow));
+                }
                 err = classic_scanner_run(SCAN_CLASSIC_DURATION_MS, MODE_BT_CLASSIC);
                 bt_stack_shutdown();
+                espnow_link_recover();
             }
             radio_guard_log_heap(TAG);
             device_cache_log_summary();

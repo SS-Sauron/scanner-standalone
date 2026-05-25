@@ -20,12 +20,34 @@ void radio_guard_log_heap(const char *tag)
     ESP_LOGI(tag, "heap free: %u bytes", (unsigned)heap_caps_get_free_size(MALLOC_CAP_DEFAULT));
 }
 
+void radio_guard_wifi_mark_up(void)
+{
+    s_wifi_up = true;
+}
+
+void radio_guard_wifi_mark_down(void)
+{
+    s_wifi_up = false;
+}
+
+void radio_guard_wifi_teardown(void)
+{
+    espnow_link_on_wifi_down();
+    esp_err_t ret = esp_wifi_stop();
+    if (ret != ESP_OK && ret != ESP_ERR_WIFI_NOT_INIT) {
+        ESP_LOGW(TAG, "esp_wifi_stop: %s", esp_err_to_name(ret));
+    }
+    ret = esp_wifi_deinit();
+    if (ret != ESP_OK && ret != ESP_ERR_WIFI_NOT_INIT) {
+        ESP_LOGW(TAG, "esp_wifi_deinit: %s", esp_err_to_name(ret));
+    }
+    s_wifi_up = false;
+}
+
 void radio_guard_all_off(void)
 {
     if (s_wifi_up) {
-        esp_wifi_stop();
-        esp_wifi_deinit();
-        s_wifi_up = false;
+        radio_guard_wifi_teardown();
         ESP_LOGI(TAG, "Wi-Fi driver off");
     }
     bt_stack_shutdown();
@@ -33,17 +55,9 @@ void radio_guard_all_off(void)
 
 esp_err_t radio_guard_prepare_bt(void)
 {
-    /* Keep Wi-Fi up when ESP-NOW is active (panel link over the air). */
-    if (s_wifi_up && !espnow_link_wifi_held()) {
-        esp_err_t ret = esp_wifi_stop();
-        if (ret != ESP_OK) {
-            ESP_LOGW(TAG, "esp_wifi_stop: %s", esp_err_to_name(ret));
-        }
-        ret = esp_wifi_deinit();
-        if (ret != ESP_OK && ret != ESP_ERR_WIFI_NOT_INIT) {
-            ESP_LOGW(TAG, "esp_wifi_deinit: %s", esp_err_to_name(ret));
-        }
-        s_wifi_up = false;
+    /* Keep Wi-Fi/ESP-NOW up when the panel link was initialized at boot. */
+    if (s_wifi_up && !espnow_link_ready()) {
+        radio_guard_wifi_teardown();
     }
     bt_stack_shutdown();
     radio_guard_log_heap(TAG);
@@ -55,14 +69,4 @@ esp_err_t radio_guard_prepare_wifi(void)
     bt_stack_shutdown();
     radio_guard_log_heap(TAG);
     return ESP_OK;
-}
-
-void radio_guard_wifi_mark_up(void)
-{
-    s_wifi_up = true;
-}
-
-void radio_guard_wifi_mark_down(void)
-{
-    s_wifi_up = false;
 }
