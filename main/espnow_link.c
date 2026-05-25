@@ -199,7 +199,7 @@ static esp_err_t send_command(const command_t *cmd)
 
     uint8_t panel[6];
     panel_mac(panel);
-    esp_err_t ret = esp_now_send(panel, (const uint8_t *)cmd, sizeof(command_t));
+    ret = esp_now_send(panel, (const uint8_t *)cmd, sizeof(command_t));
     if (ret == ESP_OK) {
         s_last_tx_us = now;
     }
